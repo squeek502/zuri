@@ -36,7 +36,7 @@ pub const Uri = struct {
         errdefer map.deinit();
         var start: usize = 0;
         var mid: usize = 0;
-        for (query) |c, i| {
+        for (query, 0..) |c, i| {
             if (c == '&') {
                 if (mid != 0) {
                     _ = try map.put(query[start..mid], query[mid + 1 .. i]);
@@ -78,7 +78,7 @@ pub const Uri = struct {
                 }
                 if (ret == null) {
                     ret = try allocator.alloc(u8, path.len);
-                    mem.copy(u8, ret.?, path[0..i]);
+                    @memcpy((ret.?)[0..i], path[0..i]);
                     ret_index = i;
                 }
 
@@ -104,11 +104,11 @@ pub const Uri = struct {
     pub fn encode(allocator: Allocator, path: []const u8) EncodeError!?[]u8 {
         var ret: ?[]u8 = null;
         var ret_index: usize = 0;
-        for (path) |c, i| {
+        for (path, 0..) |c, i| {
             if (c != '/' and !isPchar(path[i..])) {
                 if (ret == null) {
                     ret = try allocator.alloc(u8, path.len * 3);
-                    mem.copy(u8, ret.?, path[0..i]);
+                    @memcpy((ret.?)[0..i], path[0..i]);
                     ret_index = i;
                 }
                 const hex_digits = "0123456789ABCDEF";
@@ -133,7 +133,7 @@ pub const Uri = struct {
         var list = std.ArrayList([]const u8).init(allocator);
         defer list.deinit();
 
-        var it = mem.tokenize(u8, path, "/");
+        var it = mem.tokenizeScalar(u8, path, '/');
         while (it.next()) |p| {
             if (mem.eql(u8, p, ".")) {
                 continue;
@@ -151,7 +151,7 @@ pub const Uri = struct {
         for (list.items) |s| {
             buf[len] = '/';
             len += 1;
-            mem.copy(u8, buf[len..], s);
+            @memcpy(buf[len..][0..s.len], s);
             len += s.len;
         }
 
@@ -163,7 +163,7 @@ pub const Uri = struct {
         return allocator.realloc(buf, len);
     }
 
-    pub const scheme_to_port = std.ComptimeStringMap(u16, .{
+    pub const scheme_to_port = std.StaticStringMap(u16).initComptime(.{
         .{ "acap", 674 },
         .{ "afp", 548 },
         .{ "dict", 2628 },
@@ -251,7 +251,7 @@ pub const Uri = struct {
 
         // make host ip4 address if possible
         if (uri.host == .name and uri.host.name.len > 0) blk: {
-            var a = net.Address.parseIp4(uri.host.name, 0) catch break :blk;
+            const a = net.Address.parseIp4(uri.host.name, 0) catch break :blk;
             uri.host = .{ .ip = a }; // workaround for https://github.com/ziglang/zig/issues/3234
         }
 
@@ -272,7 +272,7 @@ pub const Uri = struct {
     }
 
     fn parseMaybeScheme(u: *Uri, input: []const u8) void {
-        for (input) |c, i| {
+        for (input, 0..) |c, i| {
             switch (c) {
                 'a'...'z', 'A'...'Z', '0'...'9', '+', '-', '.' => {
                     // allowed characters
@@ -348,7 +348,7 @@ pub const Uri = struct {
     }
 
     fn parsePath(u: *Uri, input: []const u8) void {
-        for (input) |c, i| {
+        for (input, 0..) |c, i| {
             if (c != '/' and (c == '?' or c == '#' or !isPchar(input[i..]))) {
                 u.path = input[0..i];
                 u.len += u.path.len;
@@ -361,7 +361,7 @@ pub const Uri = struct {
 
     fn parseQuery(u: *Uri, input: []const u8) void {
         u.len += 1; // +1 for the '?'
-        for (input) |c, i| {
+        for (input, 0..) |c, i| {
             if (c == '#' or (c != '/' and c != '?' and !isPchar(input[i..]))) {
                 u.query = input[0..i];
                 u.len += u.query.len;
@@ -374,7 +374,7 @@ pub const Uri = struct {
 
     fn parseFragment(u: *Uri, input: []const u8) void {
         u.len += 1; // +1 for the '#'
-        for (input) |c, i| {
+        for (input, 0..) |c, i| {
             if (c != '/' and c != '?' and !isPchar(input[i..])) {
                 u.fragment = input[0..i];
                 u.len += u.fragment.len;
@@ -423,7 +423,7 @@ test "short" {
     try expectEqualStrings("", uri.username);
     try expectEqualStrings("", uri.password);
     var buf = [_]u8{0} ** 100;
-    var ip = std.fmt.bufPrint(buf[0..], "{}", .{uri.host.ip}) catch unreachable;
+    const ip = std.fmt.bufPrint(buf[0..], "{}", .{uri.host.ip}) catch unreachable;
     try expectEqualStrings("192.0.2.16:80", ip);
     try expect(uri.port.? == 80);
     try expectEqualStrings("/", uri.path);
@@ -451,7 +451,7 @@ test "ipv6" {
     try expectEqualStrings("", uri.username);
     try expectEqualStrings("", uri.password);
     var buf = [_]u8{0} ** 100;
-    var ip = std.fmt.bufPrint(buf[0..], "{}", .{uri.host.ip}) catch unreachable;
+    const ip = std.fmt.bufPrint(buf[0..], "{}", .{uri.host.ip}) catch unreachable;
     try expectEqualStrings("[2001:db8::7]:389", ip);
     try expect(uri.port.? == 389);
     try expectEqualStrings("/c=GB", uri.path);
@@ -550,7 +550,7 @@ test "username contains @" {
     try expectEqualStrings("1.1.1.1&@2.2.2.2%23", uri.username);
     try expectEqualStrings("", uri.password);
     var buf = [_]u8{0} ** 100;
-    var ip = std.fmt.bufPrint(buf[0..], "{}", .{uri.host.ip}) catch unreachable;
+    const ip = std.fmt.bufPrint(buf[0..], "{}", .{uri.host.ip}) catch unreachable;
     try expectEqualStrings("3.3.3.3:443", ip);
     try expect(uri.port.? == 443);
     try expectEqualStrings("", uri.path);
